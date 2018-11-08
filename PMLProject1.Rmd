@@ -1,0 +1,154 @@
+---
+title: "Prediction Assignment Project"
+author: "Terry Jones"
+date: "November 8, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Project Goal
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively.  These devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, etc. The goal of your project is to predict the manner in which they did the exercise. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+##Acquire Datasets and Prepare for Analysis
+```{r}
+#load the data libraries that may be needed to support analysis
+library(caret, warn.conflicts = FALSE, quietly = TRUE)
+library(rpart, warn.conflicts = FALSE, quietly = TRUE)
+library(rpart.plot, warn.conflicts = FALSE, quietly = TRUE)
+library(RColorBrewer, warn.conflicts = FALSE, quietly = TRUE)
+library(rattle, warn.conflicts = FALSE, quietly = TRUE)
+library(randomForest, warn.conflicts = FALSE, quietly = TRUE)
+library(gbm, warn.conflicts = FALSE, quietly = TRUE)
+library(plyr, warn.conflicts = FALSE, quietly = TRUE)
+```
+
+```{r}
+#download data from the internet
+download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+              destfile = "./pml-train.csv", method = "curl")
+
+# Load the training dataset (df - download file)
+dfTrain <- read.csv("./pml-train.csv", na.strings=c("NA","#DIV/0!",""))
+
+#download data from the internet
+download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+              destfile = "./pml-test.csv", method = "curl")
+
+# Load the testing dataset (df - download file)
+dfTest <- read.csv("./pml-test.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+##Clean the Data 
+Remove columns with missing values, "NA" values, etc.  Time dependence values will be removed.  
+```{r}
+features <- names(dfTest[,colSums(is.na(dfTest)) == 0])[8:59]
+
+# Only use features used in testing cases
+dfTrain <- dfTrain[,c(features,"classe")]
+dfTest <- dfTest[,c(features,"problem_id")]
+
+#View data file dimensions for each file post cleansing
+dim(dfTrain); dim(dfTest);
+```
+
+##Partition the Dataset
+Use a 60/40 split (train/test) for partitioning the dataset as was alluded to in the training materials to increase performance and accuracy of the model. Therefore, p is set = to 0.6
+```{r}
+set.seed(10)
+
+inTrain <- createDataPartition(dfTrain$classe, p=0.6, list=FALSE)
+train <- dfTrain[inTrain,]
+test <- dfTrain[-inTrain,]
+
+dim(train); dim(test);
+```
+
+##Build the Decision Tree
+Although easy to interpret, results may be variable which will affect accuracy. Will set cross validation to "cv" and 10 for resampling. Will set method to "class" to get a factor of classifications based on the responses.  
+```{r}
+modFDT <- rpart(classe ~ ., data = train, method="class", control = rpart.control(method = "cv", number = 10))
+
+fancyRpartPlot(modFDT)
+```
+
+
+##Predict with the Decision Tree Model
+If we can get an accuracy of 70% or above, then we'll consider it to be acceptable.
+```{r}
+pred <- predict(modFDT, test, type = "class")
+confusionMatrix(pred, test$classe)
+```
+
+Accuracy is 72.6%, thereby, we consider to be acceptable.
+
+##Build the Random Forest (rf) Model
+One of the proces of the Random Forest Model is accuracy.  But Overfitting can be a problem.  As stated previously, We will use a 40% test sample.  The error estimate is expected to be less than 5%.
+```{r}
+modFRF <- randomForest(classe ~ ., data = train, method = "rf", importance = T, trControl = trainControl(method = "cv", classProbs=TRUE,savePredictions=TRUE,allowParallel=TRUE, number = 10))
+
+plot(modFRF)
+```
+
+##Build the Generalized Boosted Regression Model (gbm)
+The goal is to minimize error on the training set.  We will use gbm (boosting with trees).  Will set cross validation to "cv" and 10 for resampling. Will set Verbose to False to avoid the extensive info and error logs being printed. 
+```{r}
+modFB <- train(classe ~ ., method = "gbm", data = train,
+                    verbose = F,
+                    trControl = trainControl(method = "cv", number = 10))
+
+modFB
+
+plot(modFB)
+```
+
+##Predict with the rf Model
+```{r}
+pred <- predict(modFRF, test, type = "class")
+confusionMatrix(pred, test$classe)
+```
+
+The rf model achieved 99.4% accuracy.
+
+##Predict with gbm
+```{r}
+pred <- predict(modFB, test)
+confusionMatrix(pred, test$classe)
+```
+
+The gbm achieved 96.1% accuracy.
+
+##Predict with the Test Dataset
+```{r}
+predDT <- predict(modFDT, dfTest)
+predDT
+```
+
+##Apply the rf Prediction
+```{r}
+predRF <- predict(modFRF, dfTest)
+predRF
+```
+
+##Apply the gbm Prediction
+```{r}
+predgbm <- predict(modFB, dfTest)
+predgbm
+```
+
+##File to be Submitted
+The rf model appears to have a high level of accuracy at 99.5%.  With a level of accuracy this high, we can feel confident that any test cases that are submitted for analysis will be accurate.
+```{r}
+project_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+project_files(predRF)
+```
+
+
